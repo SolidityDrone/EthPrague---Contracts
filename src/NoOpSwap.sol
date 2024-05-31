@@ -20,11 +20,12 @@ contract NoOpSwap is BaseHook {
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
-    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
-        external
-        override 
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
+    function beforeSwap(
+        address,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        bytes calldata
+    ) external override returns (bytes4, BeforeSwapDelta, uint24) {
         // -------------------------------------------------------------------------------------------- //
         // Example NoOp: if swap is exactInput and the amount is 69e18, then the swap will be skipped   //
         // -------------------------------------------------------------------------------------------- //
@@ -35,29 +36,52 @@ contract NoOpSwap is BaseHook {
             poolManager.mint(address(this), input.toId(), amountTaken);
 
             // to NoOp the exact input, we return the amount that's taken by the hook
-            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(amountTaken.toInt128(), 0), 0);
+            return (
+                BaseHook.beforeSwap.selector,
+                toBeforeSwapDelta(amountTaken.toInt128(), 0),
+                0
+            );
         }
 
         beforeSwapCount[key.toId()]++;
-        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        return (
+            BaseHook.beforeSwap.selector,
+            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            0
+        );
     }
 
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
-        return Hooks.Permissions({
-            beforeInitialize: false,
-            afterInitialize: false,
-            beforeAddLiquidity: false,
-            beforeRemoveLiquidity: false,
-            afterAddLiquidity: false,
-            afterRemoveLiquidity: false,
-            beforeSwap: true, // -- No-op'ing the swap --  //
-            afterSwap: false,
-            beforeDonate: false,
-            afterDonate: false,
-            beforeSwapReturnDelta: true, // -- No-op'ing the swap --  //
-            afterSwapReturnDelta: false,
-            afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
-        });
+    function beforeRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external virtual override returns (bytes4) {
+        revert HookNotImplemented();
+    }
+
+    function getHookPermissions()
+        public
+        pure
+        override
+        returns (Hooks.Permissions memory)
+    {
+        return
+            Hooks.Permissions({
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeAddLiquidity: false,
+                beforeRemoveLiquidity: true,
+                afterAddLiquidity: false,
+                afterRemoveLiquidity: false,
+                beforeSwap: true, // -- No-op'ing the swap --  //
+                afterSwap: false,
+                beforeDonate: false,
+                afterDonate: false,
+                beforeSwapReturnDelta: true, // -- No-op'ing the swap --  //
+                afterSwapReturnDelta: false,
+                afterAddLiquidityReturnDelta: false,
+                afterRemoveLiquidityReturnDelta: false
+            });
     }
 }
