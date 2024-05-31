@@ -11,12 +11,24 @@ import {toBeforeSwapDelta, BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-cor
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 
-contract NoOpSwap is BaseHook {
+contract CaptainHappyHook is BaseHook {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    mapping(PoolId => uint256 count) public beforeSwapCount;
+    struct Trade {
+        address traderAddress;
+        int tradeAmount;
+    }
+
+    struct TradesPerBlock {
+        Trade[] aToB;
+        Trade[] bToA;
+    }
+
+    Trade[] public aToB;
+    Trade[] public bToA;
+    mapping(uint => TradesPerBlock) internal tradesPerBlock;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
@@ -26,27 +38,18 @@ contract NoOpSwap is BaseHook {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // -------------------------------------------------------------------------------------------- //
-        // Example NoOp: if swap is exactInput and the amount is 69e18, then the swap will be skipped   //
-        // -------------------------------------------------------------------------------------------- //
-        if (params.amountSpecified == -69e18) {
-            // take the input token so that v3-swap is skipped...
-            uint256 amountTaken = 69e18;
-            Currency input = params.zeroForOne ? key.currency0 : key.currency1;
-            poolManager.mint(address(this), input.toId(), amountTaken);
+        int256 amount256 = params.amountSpecified;
 
-            // to NoOp the exact input, we return the amount that's taken by the hook
-            return (
-                BaseHook.beforeSwap.selector,
-                toBeforeSwapDelta(amountTaken.toInt128(), 0),
-                0
-            );
+        if (params.zeroForOne) {
+            aToB.push(Trade(msg.sender, amount256));
+        } else {
+            bToA.push(Trade(msg.sender, -amount256));
         }
 
-        beforeSwapCount[key.toId()]++;
+        // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
         return (
             BaseHook.beforeSwap.selector,
-            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            toBeforeSwapDelta(int128(amount256), 0),
             0
         );
     }
