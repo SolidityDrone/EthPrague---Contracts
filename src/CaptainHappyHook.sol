@@ -34,7 +34,7 @@ contract CaptainHappyHook is BaseHook {
 
     function beforeSwap(
         address,
-        PoolKey calldata key,
+        PoolKey calldata,
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
@@ -49,7 +49,7 @@ contract CaptainHappyHook is BaseHook {
         // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
         return (
             BaseHook.beforeSwap.selector,
-            toBeforeSwapDelta(int128(amount256), 0),
+            toBeforeSwapDelta(int128(-amount256), 0),
             0
         );
     }
@@ -74,7 +74,7 @@ contract CaptainHappyHook is BaseHook {
                 beforeInitialize: false,
                 afterInitialize: false,
                 beforeAddLiquidity: false,
-                beforeRemoveLiquidity: true,
+                beforeRemoveLiquidity: true, // -- No-op'ing the swap --  //
                 afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
                 beforeSwap: true, // -- No-op'ing the swap --  //
