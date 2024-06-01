@@ -22,7 +22,7 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     uint[] public tradeAmountsInThisBlockAtoB;
     uint[] public tradeAmountsInThisBlockBtoA;
     uint public currentBlock;
-
+    bool public needed;
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
     // TEMPORARY LOCATION FOR tradeSort & tradeMerge - WILL GO IN CHAINLINK AUTOMATION
@@ -111,7 +111,9 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // check if trade is requestes by
+        // TODO: check if trade is requestes by
+
+
         if (block.number != currentBlock) {
             currentBlock = block.number;
             if (params.zeroForOne) {
@@ -137,7 +139,7 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
             input.toId(),
             uint256(-params.amountSpecified)
         );
-
+        needed = true;
         return (
             BaseHook.beforeSwap.selector,
             toBeforeSwapDelta(int128(-params.amountSpecified), 0),
@@ -182,8 +184,10 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     function checkUpkeep(
         bytes calldata checkdata
     ) external view returns (bool upkeepNeeded, bytes memory performData) {
-        // attach resort/merge pure function
+        return (needed, performData);
     }
 
-    function performUpkeep(bytes calldata performData) external override {}
+    function performUpkeep(bytes calldata performData) external override {
+        needed = false;
+    }
 }
