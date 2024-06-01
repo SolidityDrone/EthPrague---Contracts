@@ -16,17 +16,51 @@ contract CaptainHappyHook is BaseHook {
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    uint public currentBlock;
     address[] public traderAddressesInThisBlockAtoB;
-    int[] public tradeAmountsInThisBlockAtoB;
     address[] public traderAddressesInThisBlockBtoA;
-    int[] public tradeAmountsInThisBlockBtoA;
+    uint[] public tradeAmountsInThisBlockAtoB;
+    uint[] public tradeAmountsInThisBlockBtoA;
+    uint public currentBlock;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
-    // TEMPORARY LOCATION FOR THIS FUNCTION - WILL GO IN CHAINLINK AUTOMATION
-    // function sortTrades() takes TradesPerBlock as argument, then for each of the two lists
-    // function sortTrades()
+    // TEMPORARY LOCATION FOR tradeSort & tradeMerge - WILL GO IN CHAINLINK AUTOMATION
+
+    function tradeSort(
+        uint[] memory arr,
+        address[] memory addrArr,
+        int left,
+        int right
+    ) public pure returns (uint[] memory, address[] memory) {
+        int i = left;
+        int j = right;
+        if (i != j) {
+            uint pivot = arr[uint(left + (right - left) / 2)];
+            while (i <= j) {
+                while (arr[uint(i)] < pivot) i++;
+                while (pivot < arr[uint(j)]) j--;
+                if (i <= j) {
+                    (arr[uint(i)], arr[uint(j)]) = (arr[uint(j)], arr[uint(i)]);
+                    (addrArr[uint(i)], addrArr[uint(j)]) = (
+                        addrArr[uint(j)],
+                        addrArr[uint(i)]
+                    );
+                    i++;
+                    j--;
+                }
+            }
+            if (left < j) tradeSort(arr, addrArr, left, j);
+            if (i < right) tradeSort(arr, addrArr, i, right);
+        }
+        return (arr, addrArr);
+    }
+
+    // function tradeMerge(
+    //     uint[] memory amountsAtoB,
+    //     uint[] memory amountsBtoA,
+    //     address[] memory addressesAtoB,
+    //     address[] memory addressesBtoA
+    // ) public view returns (uint[] memory, address[] memory) {}
 
     function beforeSwap(
         address,
@@ -38,18 +72,18 @@ contract CaptainHappyHook is BaseHook {
             currentBlock = block.number;
             if (params.zeroForOne) {
                 traderAddressesInThisBlockAtoB = [msg.sender];
-                tradeAmountsInThisBlockAtoB = [params.amountSpecified];
+                tradeAmountsInThisBlockAtoB = [uint(params.amountSpecified)];
             } else {
                 traderAddressesInThisBlockBtoA = [msg.sender];
-                tradeAmountsInThisBlockBtoA = [params.amountSpecified];
+                tradeAmountsInThisBlockBtoA = [uint(params.amountSpecified)];
             }
         } else {
             if (params.zeroForOne) {
                 traderAddressesInThisBlockAtoB.push(msg.sender);
-                tradeAmountsInThisBlockAtoB.push(params.amountSpecified);
+                tradeAmountsInThisBlockAtoB.push(uint(params.amountSpecified));
             } else {
                 traderAddressesInThisBlockBtoA.push(msg.sender);
-                tradeAmountsInThisBlockBtoA.push(params.amountSpecified);
+                tradeAmountsInThisBlockBtoA.push(uint(params.amountSpecified));
             }
         }
 
