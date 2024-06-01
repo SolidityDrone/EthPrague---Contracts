@@ -60,7 +60,7 @@ contract CaptainHappyHook is BaseHook {
         uint[] memory descendingAmountsBtoA,
         address[] memory descendingAddressesAtoB,
         address[] memory descendingAddressesBtoA
-    ) public view returns (uint[] memory, address[] memory) {
+    ) public pure returns (uint[] memory, address[] memory) {
         // set a midpoint demand offset to minimise price impact
         uint demandOffset = 0;
         for (uint256 i = 0; i < descendingAmountsAtoB.length; i++) {
