@@ -10,54 +10,153 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {toBeforeSwapDelta, BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
+import {AutomationCompatibleInterface} from "lib/foundry-chainlink-toolkit/lib/chainlink-brownie-contracts/contracts/src/v0.8/automation/AutomationCompatible.sol";
 
-contract NoOpSwap is BaseHook {
+
+contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    mapping(PoolId => uint256 count) public beforeSwapCount;
+    address[] public traderAddressesInThisBlockAtoB;
+    address[] public traderAddressesInThisBlockBtoA;
+    uint[] public tradeAmountsInThisBlockAtoB;
+    uint[] public tradeAmountsInThisBlockBtoA;
+    uint public currentBlock;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
-    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
-        external
-        override 
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
-        // -------------------------------------------------------------------------------------------- //
-        // Example NoOp: if swap is exactInput and the amount is 69e18, then the swap will be skipped   //
-        // -------------------------------------------------------------------------------------------- //
-        if (params.amountSpecified == -69e18) {
-            // take the input token so that v3-swap is skipped...
-            uint256 amountTaken = 69e18;
-            Currency input = params.zeroForOne ? key.currency0 : key.currency1;
-            poolManager.mint(address(this), input.toId(), amountTaken);
+    // TEMPORARY LOCATION FOR tradeSort & tradeMerge - WILL GO IN CHAINLINK AUTOMATION
 
-            // to NoOp the exact input, we return the amount that's taken by the hook
-            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(amountTaken.toInt128(), 0), 0);
+    function tradeSort(
+        uint[] memory arr,
+        address[] memory addrArr,
+        int left,
+        int right
+    ) public pure returns (uint[] memory, address[] memory) {
+        int i = left;
+        int j = right;
+        if (i != j) {
+            uint pivot = arr[uint(left + (right - left) / 2)];
+            while (i <= j) {
+                while (arr[uint(i)] < pivot) i++;
+                while (pivot < arr[uint(j)]) j--;
+                if (i <= j) {
+                    (arr[uint(i)], arr[uint(j)]) = (arr[uint(j)], arr[uint(i)]);
+                    (addrArr[uint(i)], addrArr[uint(j)]) = (
+                        addrArr[uint(j)],
+                        addrArr[uint(i)]
+                    );
+                    i++;
+                    j--;
+                }
+            }
+            if (left < j) tradeSort(arr, addrArr, left, j);
+            if (i < right) tradeSort(arr, addrArr, i, right);
         }
-
-        beforeSwapCount[key.toId()]++;
-        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        return (arr, addrArr);
     }
 
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
-        return Hooks.Permissions({
-            beforeInitialize: false,
-            afterInitialize: false,
-            beforeAddLiquidity: false,
-            beforeRemoveLiquidity: false,
-            afterAddLiquidity: false,
-            afterRemoveLiquidity: false,
-            beforeSwap: true, // -- No-op'ing the swap --  //
-            afterSwap: false,
-            beforeDonate: false,
-            afterDonate: false,
-            beforeSwapReturnDelta: true, // -- No-op'ing the swap --  //
-            afterSwapReturnDelta: false,
-            afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
-        });
+    // function tradeMerge(
+    //     uint[] memory amountsAtoB,
+    //     uint[] memory amountsBtoA,
+    //     address[] memory addressesAtoB,
+    //     address[] memory addressesBtoA
+    // ) public view returns (uint[] memory, address[] memory) {
+    //     // set a midpoint demand offset to minimise price impact
+    //     uint demandOffset = 0;
+    //     for (uint256 i = 0; i < amountsAtoB.length; i++) {
+    //         demandOffset += amountsAtoB[i];
+    //     }
+    //     for (uint256 i = 0; i < amountsBtoA.length; i++) {
+    //         demandOffset -= amountsBtoA[i];
+    //     }
+
+    //     // merge amounts and addresses in order
+    //     address[] memory mergedAddresses = [];
+    //     if (demandOffset > 0) {}
+    // }
+
+    function beforeSwap(
+        address,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        bytes calldata
+    ) external override returns (bytes4, BeforeSwapDelta, uint24) {
+        // check if trade is requestes by
+        if (block.number != currentBlock) {
+            currentBlock = block.number;
+            if (params.zeroForOne) {
+                traderAddressesInThisBlockAtoB = [msg.sender];
+                tradeAmountsInThisBlockAtoB = [uint(params.amountSpecified)];
+            } else {
+                traderAddressesInThisBlockBtoA = [msg.sender];
+                tradeAmountsInThisBlockBtoA = [uint(params.amountSpecified)];
+            }
+        } else {
+            if (params.zeroForOne) {
+                traderAddressesInThisBlockAtoB.push(msg.sender);
+                tradeAmountsInThisBlockAtoB.push(uint(params.amountSpecified));
+            } else {
+                traderAddressesInThisBlockBtoA.push(msg.sender);
+                tradeAmountsInThisBlockBtoA.push(uint(params.amountSpecified));
+            }
+        }
+        // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
+        Currency input = params.zeroForOne ? key.currency0 : key.currency1;
+            poolManager.mint(address(this), input.toId(), uint256(-params.amountSpecified));
+
+           
+        return (
+            BaseHook.beforeSwap.selector,
+            toBeforeSwapDelta(int128(-params.amountSpecified), 0),
+            0
+        );
+    }
+
+    function beforeRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external virtual override returns (bytes4) {
+        revert HookNotImplemented();
+    }
+
+    function getHookPermissions()
+        public
+        pure
+        override
+        returns (Hooks.Permissions memory)
+    {
+        return
+            Hooks.Permissions({
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeAddLiquidity: false,
+                beforeRemoveLiquidity: false, // -- No-op'ing the swap --  //
+                afterAddLiquidity: false,
+                afterRemoveLiquidity: false,
+                beforeSwap: true, // -- No-op'ing the swap --  //
+                afterSwap: false,
+                beforeDonate: false,
+                afterDonate: false,
+                beforeSwapReturnDelta: true, // -- No-op'ing the swap --  //
+                afterSwapReturnDelta: false,
+                afterAddLiquidityReturnDelta: false,
+                afterRemoveLiquidityReturnDelta: false
+            });
+    }
+
+
+
+    function checkUpkeep(
+        bytes calldata checkdata
+    ) external view returns (bool upkeepNeeded, bytes memory performData) {
+    
+            // attach resort/merge pure function
+    }
+    function performUpkeep(bytes calldata performData) external override {
+       
     }
 }
