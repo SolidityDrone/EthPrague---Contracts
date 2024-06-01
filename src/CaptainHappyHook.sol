@@ -16,21 +16,17 @@ contract CaptainHappyHook is BaseHook {
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    struct Trade {
-        address traderAddress;
-        int tradeAmount;
-    }
-
-    struct TradesPerBlock {
-        Trade[] aToB;
-        Trade[] bToA;
-    }
-
-    Trade[] public aToB;
-    Trade[] public bToA;
-    mapping(uint => TradesPerBlock) internal tradesPerBlock;
+    uint public currentBlock;
+    address[] public traderAddressesInThisBlockAtoB;
+    int[] public tradeAmountsInThisBlockAtoB;
+    address[] public traderAddressesInThisBlockBtoA;
+    int[] public tradeAmountsInThisBlockBtoA;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+
+    // TEMPORARY LOCATION FOR THIS FUNCTION - WILL GO IN CHAINLINK AUTOMATION
+    // function sortTrades() takes TradesPerBlock as argument, then for each of the two lists
+    // function sortTrades()
 
     function beforeSwap(
         address,
@@ -38,18 +34,32 @@ contract CaptainHappyHook is BaseHook {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        int256 amount256 = params.amountSpecified;
-
-        if (params.zeroForOne) {
-            aToB.push(Trade(msg.sender, amount256));
+        if (block.number != currentBlock) {
+            currentBlock = block.number;
+            if (params.zeroForOne) {
+                traderAddressesInThisBlockAtoB = [msg.sender];
+                tradeAmountsInThisBlockAtoB = [params.amountSpecified];
+            } else {
+                traderAddressesInThisBlockBtoA = [msg.sender];
+                tradeAmountsInThisBlockBtoA = [params.amountSpecified];
+            }
         } else {
-            bToA.push(Trade(msg.sender, -amount256));
+            if (params.zeroForOne) {
+                traderAddressesInThisBlockAtoB.push(msg.sender);
+                tradeAmountsInThisBlockAtoB.push(params.amountSpecified);
+            } else {
+                traderAddressesInThisBlockBtoA.push(msg.sender);
+                tradeAmountsInThisBlockBtoA.push(params.amountSpecified);
+            }
         }
 
         // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
+        int _swapDelta = params.zeroForOne
+            ? params.amountSpecified
+            : -params.amountSpecified;
         return (
             BaseHook.beforeSwap.selector,
-            toBeforeSwapDelta(int128(-amount256), 0),
+            toBeforeSwapDelta(int128(_swapDelta), 0),
             0
         );
     }
