@@ -22,12 +22,18 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     uint[] public tradeAmountsInThisBlockAtoB;
     uint[] public tradeAmountsInThisBlockBtoA;
     uint public currentBlock;
-    bool public needed;
+
+    address forwarder;
+    
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
     // TEMPORARY LOCATION FOR tradeSort & tradeMerge - WILL GO IN CHAINLINK AUTOMATION
+    function setForwarder(address _forwarder) external {
+        forwarder = _forwarder;
+    }
 
-    function tradeSort(
+
+   function tradeSort(
         uint[] memory arr,
         address[] memory addrArr,
         int left,
@@ -62,48 +68,40 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         address[] memory descendingAddressesAtoB,
         address[] memory descendingAddressesBtoA
     ) public view returns (uint[] memory, address[] memory) {
-        // set a midpoint demand offset to minimise price impact
-        uint demandOffset = 0;
+        // set a midpoint demand offset to minimize price impact
+        int demandOffset = 0;
         for (uint256 i = 0; i < descendingAmountsAtoB.length; i++) {
-            demandOffset += descendingAmountsAtoB[i];
+            demandOffset += int(descendingAmountsAtoB[i]);
         }
         for (uint256 i = 0; i < descendingAmountsBtoA.length; i++) {
-            demandOffset -= descendingAmountsBtoA[i];
+            demandOffset -= int(descendingAmountsBtoA[i]);
         }
 
         // merge amounts and addresses to aim for a zero demand offset
-        uint totalTradeCount = descendingAmountsAtoB.length +
-            descendingAmountsBtoA.length;
+        uint totalTradeCount = descendingAmountsAtoB.length + descendingAmountsBtoA.length;
         uint[] memory mergedAmounts = new uint[](totalTradeCount);
-        address[] memory mergedAddresses;
+        address[] memory mergedAddresses = new address[](totalTradeCount);
         uint tradesProcessed = 0;
-        uint elementsAToB;
-        uint elementsBToA;
+        uint iAtoB = 0;
+        uint iBtoA = 0;
+        
         while (tradesProcessed < totalTradeCount) {
-            elementsAToB = descendingAmountsAtoB.length;
-            elementsBToA = descendingAmountsBtoA.length;
-            if (demandOffset > 0) {
-                for (uint256 i = 0; i < elementsAToB; i++) {
-                    mergedAmounts[tradesProcessed] = descendingAmountsAtoB[i];
-                    mergedAddresses[tradesProcessed] = descendingAddressesAtoB[
-                        i
-                    ];
-                    demandOffset -= descendingAmountsAtoB[i];
-                    tradesProcessed++;
-                }
-            } else {
-                for (uint256 i = 0; i < elementsBToA; i++) {
-                    mergedAmounts[tradesProcessed] = descendingAmountsBtoA[i];
-                    mergedAddresses[tradesProcessed] = descendingAddressesBtoA[
-                        i
-                    ];
-                    demandOffset += descendingAmountsBtoA[i];
-                    tradesProcessed++;
-                }
+            if (demandOffset > 0 && iAtoB < descendingAmountsAtoB.length) {
+                mergedAmounts[tradesProcessed] = descendingAmountsAtoB[iAtoB];
+                mergedAddresses[tradesProcessed] = descendingAddressesAtoB[iAtoB];
+                demandOffset -= int(descendingAmountsAtoB[iAtoB]);
+                iAtoB++;
+            } else if (iBtoA < descendingAmountsBtoA.length) {
+                mergedAmounts[tradesProcessed] = descendingAmountsBtoA[iBtoA];
+                mergedAddresses[tradesProcessed] = descendingAddressesBtoA[iBtoA];
+                demandOffset += int(descendingAmountsBtoA[iBtoA]);
+                iBtoA++;
             }
+            tradesProcessed++;
         }
         return (mergedAmounts, mergedAddresses);
     }
+   
 
     function beforeSwap(
         address,
@@ -111,40 +109,43 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // TODO: check if trade is requestes by
-
-
-        if (block.number != currentBlock) {
-            currentBlock = block.number;
-            if (params.zeroForOne) {
-                traderAddressesInThisBlockAtoB = [msg.sender];
-                tradeAmountsInThisBlockAtoB = [uint(params.amountSpecified)];
+            if (msg.sender != forwarder){
+                if (block.number != currentBlock) {
+                currentBlock = block.number;
+                if (params.zeroForOne) {
+                    traderAddressesInThisBlockAtoB = [msg.sender];
+                    tradeAmountsInThisBlockAtoB = [uint(params.amountSpecified)];
+                } else {
+                    traderAddressesInThisBlockBtoA = [msg.sender];
+                    tradeAmountsInThisBlockBtoA = [uint(params.amountSpecified)];
+                }
             } else {
-                traderAddressesInThisBlockBtoA = [msg.sender];
-                tradeAmountsInThisBlockBtoA = [uint(params.amountSpecified)];
+                if (params.zeroForOne) {
+                    traderAddressesInThisBlockAtoB.push(msg.sender);
+                    tradeAmountsInThisBlockAtoB.push(uint(params.amountSpecified));
+                } else {
+                    traderAddressesInThisBlockBtoA.push(msg.sender);
+                    tradeAmountsInThisBlockBtoA.push(uint(params.amountSpecified));
+                }
             }
-        } else {
-            if (params.zeroForOne) {
-                traderAddressesInThisBlockAtoB.push(msg.sender);
-                tradeAmountsInThisBlockAtoB.push(uint(params.amountSpecified));
+            // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
+            Currency input = params.zeroForOne ? key.currency0 : key.currency1;
+            poolManager.mint(
+                address(this),
+                input.toId(),
+                uint256(-params.amountSpecified)
+            );
+            
+            return (
+                BaseHook.beforeSwap.selector,
+                toBeforeSwapDelta(int128(-params.amountSpecified), 0),
+                0
+            );
             } else {
-                traderAddressesInThisBlockBtoA.push(msg.sender);
-                tradeAmountsInThisBlockBtoA.push(uint(params.amountSpecified));
+                return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
             }
-        }
-        // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
-        Currency input = params.zeroForOne ? key.currency0 : key.currency1;
-        poolManager.mint(
-            address(this),
-            input.toId(),
-            uint256(-params.amountSpecified)
-        );
-        needed = true;
-        return (
-            BaseHook.beforeSwap.selector,
-            toBeforeSwapDelta(int128(-params.amountSpecified), 0),
-            0
-        );
+
+       
     }
 
     function beforeRemoveLiquidity(
@@ -184,10 +185,10 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     function checkUpkeep(
         bytes calldata checkdata
     ) external view returns (bool upkeepNeeded, bytes memory performData) {
-        return (needed, performData);
+        return (upkeepNeeded, performData);
     }
 
     function performUpkeep(bytes calldata performData) external override {
-        needed = false;
+       
     }
 }

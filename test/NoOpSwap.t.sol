@@ -96,6 +96,7 @@ contract NoOpSwapTest is Test {
         );
         int256 amountSpecified = -6000000;
         // execute a swap
+
         PoolSwapTest(poolSwap).swap(
             key,
             IPoolManager.SwapParams(
@@ -106,7 +107,7 @@ contract NoOpSwapTest is Test {
             PoolSwapTest.TestSettings(false, false),
             hex""
         );
-
+       
         // // try catch one that is too big
         // try
         // PoolSwapTest(poolSwap).swap(
