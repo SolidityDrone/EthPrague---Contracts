@@ -60,7 +60,20 @@ contract CaptainHappyHook is BaseHook {
     //     uint[] memory amountsBtoA,
     //     address[] memory addressesAtoB,
     //     address[] memory addressesBtoA
-    // ) public view returns (uint[] memory, address[] memory) {}
+    // ) public view returns (uint[] memory, address[] memory) {
+    //     // set a midpoint demand offset to minimise price impact
+    //     uint demandOffset = 0;
+    //     for (uint256 i = 0; i < amountsAtoB.length; i++) {
+    //         demandOffset += amountsAtoB[i];
+    //     }
+    //     for (uint256 i = 0; i < amountsBtoA.length; i++) {
+    //         demandOffset -= amountsBtoA[i];
+    //     }
+
+    //     // merge amounts and addresses in order
+    //     address[] memory mergedAddresses = [];
+    //     if (demandOffset > 0) {}
+    // }
 
     function beforeSwap(
         address,
