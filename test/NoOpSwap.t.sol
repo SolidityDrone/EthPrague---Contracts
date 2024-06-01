@@ -39,22 +39,25 @@ contract NoOpSwapTest is Test{
             "SponsoredTest: hook address mismatch"
         );
         
-       // floor(sqrt(1) * 2^96)
+        // floor(sqrt(1) * 2^96)
         uint160 startingPrice = 79228162514264337593543950336;
-
+        
         PoolKey memory uninitializedKey = PoolKey({
-           currency0: Currency.wrap(token0),
-           currency1: Currency.wrap(token1),
+           currency0:    (uint160(token0) < uint160(token1) ? Currency.wrap(token0) : Currency.wrap(token1) ),
+           currency1:    (uint160(token0) < uint160(token1) ? Currency.wrap(token1) : Currency.wrap(token0) ),
            fee: 3000,
            hooks: IHooks(hook),
            tickSpacing: 60
         });
-        
-
         IPoolManager(sepoliaPoolManager).initialize(uninitializedKey, startingPrice, hex'');
-    }
-     
-    
-    
 
+         (key, poolId) = initPoolAndAddLiquidity(
+            currency0,
+            currency1,
+            IHooks(address(hook)),
+            3000,
+            SQRT_RATIO_1_1,
+            ZERO_BYTES
+        );
+    }
 }
