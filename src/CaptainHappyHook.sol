@@ -37,8 +37,8 @@ contract CaptainHappyHook is BaseHook {
         if (i != j) {
             uint pivot = arr[uint(left + (right - left) / 2)];
             while (i <= j) {
-                while (arr[uint(i)] < pivot) i++;
-                while (pivot < arr[uint(j)]) j--;
+                while (arr[uint(i)] > pivot) i++;
+                while (pivot > arr[uint(j)]) j--;
                 if (i <= j) {
                     (arr[uint(i)], arr[uint(j)]) = (arr[uint(j)], arr[uint(i)]);
                     (addrArr[uint(i)], addrArr[uint(j)]) = (
@@ -55,25 +55,54 @@ contract CaptainHappyHook is BaseHook {
         return (arr, addrArr);
     }
 
-    // function tradeMerge(
-    //     uint[] memory amountsAtoB,
-    //     uint[] memory amountsBtoA,
-    //     address[] memory addressesAtoB,
-    //     address[] memory addressesBtoA
-    // ) public view returns (uint[] memory, address[] memory) {
-    //     // set a midpoint demand offset to minimise price impact
-    //     uint demandOffset = 0;
-    //     for (uint256 i = 0; i < amountsAtoB.length; i++) {
-    //         demandOffset += amountsAtoB[i];
-    //     }
-    //     for (uint256 i = 0; i < amountsBtoA.length; i++) {
-    //         demandOffset -= amountsBtoA[i];
-    //     }
+    function tradeMerge(
+        uint[] memory descendingAmountsAtoB,
+        uint[] memory descendingAmountsBtoA,
+        address[] memory descendingAddressesAtoB,
+        address[] memory descendingAddressesBtoA
+    ) public view returns (uint[] memory, address[] memory) {
+        // set a midpoint demand offset to minimise price impact
+        uint demandOffset = 0;
+        for (uint256 i = 0; i < descendingAmountsAtoB.length; i++) {
+            demandOffset += descendingAmountsAtoB[i];
+        }
+        for (uint256 i = 0; i < descendingAmountsBtoA.length; i++) {
+            demandOffset -= descendingAmountsBtoA[i];
+        }
 
-    //     // merge amounts and addresses in order
-    //     address[] memory mergedAddresses = [];
-    //     if (demandOffset > 0) {}
-    // }
+        // merge amounts and addresses to aim for a zero demand offset
+        uint totalTradeCount = descendingAmountsAtoB.length +
+            descendingAmountsBtoA.length;
+        uint[] memory mergedAmounts = new uint[](totalTradeCount);
+        address[] memory mergedAddresses;
+        uint tradesProcessed = 0;
+        uint elementsAToB;
+        uint elementsBToA;
+        while (tradesProcessed < totalTradeCount) {
+            elementsAToB = descendingAmountsAtoB.length;
+            elementsBToA = descendingAmountsBtoA.length;
+            if (demandOffset > 0) {
+                for (uint256 i = 0; i < elementsAToB; i++) {
+                    mergedAmounts[tradesProcessed] = descendingAmountsAtoB[i];
+                    mergedAddresses[tradesProcessed] = descendingAddressesAtoB[
+                        i
+                    ];
+                    demandOffset -= descendingAmountsAtoB[i];
+                    tradesProcessed++;
+                }
+            } else {
+                for (uint256 i = 0; i < elementsBToA; i++) {
+                    mergedAmounts[tradesProcessed] = descendingAmountsBtoA[i];
+                    mergedAddresses[tradesProcessed] = descendingAddressesBtoA[
+                        i
+                    ];
+                    demandOffset += descendingAmountsBtoA[i];
+                    tradesProcessed++;
+                }
+            }
+        }
+        return (mergedAmounts, mergedAddresses);
+    }
 
     function beforeSwap(
         address,
