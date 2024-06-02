@@ -20,7 +20,8 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     uint internal lastFullfilledBlockIndex;
     address internal forwarder;
     uint[] blocks;
-    mapping(uint=>Trade[200]) internal s_tradesInBlock;
+    mapping(uint=>Trade[200]) internal s_tradesInBlock_0_1;
+    mapping(uint=>Trade[200]) internal s_tradesInBlock_1_0;
     mapping(uint=>uint) internal s_blockNonce;
     mapping(uint=>bool) internal s_isSavedBlock;
     
@@ -124,10 +125,10 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
                  s_blockNonce[block.number] +=1;
 
                 if (!params.zeroForOne){
-                    s_tradesInBlock[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, false);
+                    s_tradesInBlock_1_0[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, false);
                 } 
                 if (params.zeroForOne){
-                    s_tradesInBlock[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, true);
+                    s_tradesInBlock_0_1[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, true);
                 }
             }
 
@@ -186,18 +187,8 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     function checkUpkeep(
         bytes calldata checkdata
     ) external view returns (bool upkeepNeeded, bytes memory performData) {
-       // list of trades atob and btoa
-       Trades[] trades = s_tradesInBlock[lastFullfilledBlockIndex + 1];
-       Trades[] tradesAtoB;
-       Trades[] tradesBtoA;
-
-       for (uint256 i = 0; i < trades.length; i++) {
-            if (trades[i].isZeroToOne) {
-                // tradesAtoB.push(trades[i]);
-            }
-            else {
-                // tradesBtoA.push(trades[i]);
-            }       
+        for (uint i; i < s_blockNonce[block.number]; i++){
+            
         }
     }
 
