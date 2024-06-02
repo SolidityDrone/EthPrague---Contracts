@@ -70,7 +70,7 @@ contract CounterScript is Script{
         vm.broadcast();
         IPoolManager(SEPOLIA_POOLMANAGER).initialize(key, startingPrice, hex"");
        
-         vm.broadcast();
+        vm.broadcast();
           PoolModifyLiquidityTest(positionManager).modifyLiquidity(
             key,
             IPoolManager.ModifyLiquidityParams({
@@ -93,6 +93,7 @@ contract CounterScript is Script{
             ),
             PoolSwapTest.TestSettings(false, false),
             hex""
-        );
+        ); 
+
     }
 }

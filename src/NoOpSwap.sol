@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {BaseHook} from "v4-periphery/BaseHook.sol";
-
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
+import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
@@ -11,6 +11,9 @@ import {toBeforeSwapDelta, BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-cor
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 import {AutomationCompatibleInterface} from "lib/foundry-chainlink-toolkit/lib/chainlink-brownie-contracts/contracts/src/v0.8/automation/AutomationCompatible.sol";
+import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
+
 
 contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     using PoolIdLibrary for PoolKey;
@@ -19,13 +22,15 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
 
     uint internal lastFullfilledBlockIndex;
     address internal forwarder;
+    address token0 = 0x41Afb4518aD277455C1eF6182F35667949cC0b41;
+    address token1 = 0xC0c8C84A1f962Af274Ad3E36Dbb81bAD9B3b969C;
+    address poolSwap = 0x841B5A0b3DBc473c8A057E2391014aa4C4751351;
     uint[] blocks;
-    mapping(uint=>Trade[200]) internal s_tradesInBlock;
-    mapping(uint=>uint) internal s_blockNonce;
-    mapping(uint=>bool) internal s_isSavedBlock;
-    
+    mapping(uint => Trade[200]) internal s_tradesInBlock;
+    mapping(uint => uint) internal s_blockNonce;
+    mapping(uint => bool) internal s_isSavedBlock;
 
-    struct Trade{
+    struct Trade {
         address sender;
         uint amountSpecified;
         bool isZeroToOne;
@@ -37,13 +42,15 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     function setForwarder(address _forwarder) external {
         forwarder = _forwarder;
     }
-    
-   function tradeSort(
+
+    function tradeSort(
         uint[] memory arr,
-        address[] memory addrArr
+        address[] memory addrArr,
+        int left,
+        int right
     ) internal pure returns (uint[] memory, address[] memory) {
-        int i = 0;
-        int j = arr.length;
+        int i = left;
+        int j = right;
         if (i != j) {
             uint pivot = arr[uint(left + (right - left) / 2)];
             while (i <= j) {
@@ -104,7 +111,6 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         }
         return (mergedAmounts, mergedAddresses);
     }
-   
 
     function beforeSwap(
         address,
@@ -112,41 +118,36 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-            if (msg.sender == forwarder){
-               return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
-            }   
+        if (msg.sender == forwarder) {
+            return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        }
 
-            if (msg.sender != forwarder){
-                if (s_isSavedBlock[block.number] == false){
-                    s_isSavedBlock[block.number] = true;    
-                    blocks.push(block.number);   
-                } 
-                 s_blockNonce[block.number] +=1;
-
-                if (!params.zeroForOne){
-                    s_tradesInBlock[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, false);
-                } 
-                if (params.zeroForOne){
-                    s_tradesInBlock[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, true);
-                }
+        if (msg.sender != forwarder) {
+            if (!s_isSavedBlock[block.number]) {
+                s_isSavedBlock[block.number] = true;
+                blocks.push(block.number);
             }
+            s_blockNonce[block.number] += 1;
 
-            Currency input = params.zeroForOne ? key.currency0 : key.currency1;
-            poolManager.mint(
-                address(this),
-                input.toId(),
-                uint256(-params.amountSpecified)
+            s_tradesInBlock[block.number][s_blockNonce[block.number] - 1] = Trade(
+                msg.sender,
+                uint(params.amountSpecified),
+                params.zeroForOne
             );
+        }
 
+        Currency input = params.zeroForOne ? key.currency0 : key.currency1;
+        poolManager.mint(
+            address(this),
+            input.toId(),
+            uint256(-params.amountSpecified)
+        );
 
-            
-            return (
-                BaseHook.beforeSwap.selector,
-                toBeforeSwapDelta(int128(-params.amountSpecified), 0),
-                0
-            );
-
-    
+        return (
+            BaseHook.beforeSwap.selector,
+            toBeforeSwapDelta(int128(-params.amountSpecified), 0),
+            0
+        );
     }
 
     function beforeRemoveLiquidity(
@@ -185,55 +186,115 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
 
     function checkUpkeep(
         bytes calldata checkdata
-    ) external view returns (bool upkeepNeeded, bytes memory performData) {
-       // list of trades atob and btoa
-       Trades[] trades = s_tradesInBlock[lastFullfilledBlockIndex + 1];
-       Trades[] tradesAtoB;
-       Trades[] tradesBtoA;
+    ) external view override returns (bool upkeepNeeded, bytes memory performData) {
+        uint nextBlockIndex = lastFullfilledBlockIndex + 1;
 
-       for (uint256 i = 0; i < trades.length; i++) {
-            if (trades[i].isZeroToOne) {
-                // tradesAtoB.push(trades[i]);
-            }
-            else {
-                // tradesBtoA.push(trades[i]);
-            }       
+        // Ensure the block is saved and has trades
+        if (!s_isSavedBlock[nextBlockIndex] || s_blockNonce[nextBlockIndex] == 0) {
+            return (false, "");
         }
-    }
 
-    function tradeSortNew(Trades[] memory trades) internal pure returns (uint[] memory, address[] memory) {
-        int i = left = 0;
-        int j = right = arr.length;
+        uint[] memory zeroToOne;
+        uint[] memory oneToZero;
+        address[] memory zeroToOneAddresses;
+        address[] memory oneToZeroAddresses;
 
-        if (i != j) {
-            uint pivot = arr[uint(left + (right - left) / 2)];
-            while (i <= j) {
-                while (arr[uint(i)] > pivot) i++;
-                while (pivot > arr[uint(j)]) j--;
-                if (i <= j) {
-                    (arr[uint(i)], arr[uint(j)]) = (arr[uint(j)], arr[uint(i)]);
-                    (addrArr[uint(i)], addrArr[uint(j)]) = (
-                        addrArr[uint(j)],
-                        addrArr[uint(i)]
-                    );
-                    i++;
-                    j--;
-                }
+        uint tradeCount = s_blockNonce[nextBlockIndex];
+
+        // Initialize temporary arrays with the length of trades
+        zeroToOne = new uint[](tradeCount);
+        oneToZero = new uint[](tradeCount);
+        zeroToOneAddresses = new address[](tradeCount);
+        oneToZeroAddresses = new address[](tradeCount);
+
+        uint zeroToOneCount;
+        uint oneToZeroCount;
+
+        // Iterate through each trade in the block
+        for (uint i = 0; i < tradeCount; i++) {
+            Trade memory trade = s_tradesInBlock[nextBlockIndex][i];
+
+            // Append the trade amount and address to the appropriate arrays
+            if (trade.isZeroToOne) {
+                zeroToOne[zeroToOneCount] = trade.amountSpecified;
+                zeroToOneAddresses[zeroToOneCount] = trade.sender;
+                zeroToOneCount++;
+            } else {
+                oneToZero[oneToZeroCount] = trade.amountSpecified;
+                oneToZeroAddresses[oneToZeroCount] = trade.sender;
+                oneToZeroCount++;
             }
-            if (left < j) tradeSort(arr, addrArr, left, j);
-            if (i < right) tradeSort(arr, addrArr, i, right);
         }
-        return (arr, addrArr);
-    }
- 
 
-        struct Trade{
-        address sender;
-        uint amountSpecified;
-        bool isZeroToOne;
+        // Resize the arrays to the actual count of elements
+        uint[] memory finalZeroToOne = new uint[](zeroToOneCount);
+        uint[] memory finalOneToZero = new uint[](oneToZeroCount);
+        address[] memory finalZeroToOneAddresses = new address[](zeroToOneCount);
+        address[] memory finalOneToZeroAddresses = new address[](oneToZeroCount);
+
+        for (uint i = 0; i < zeroToOneCount; i++) {
+            finalZeroToOne[i] = zeroToOne[i];
+            finalZeroToOneAddresses[i] = zeroToOneAddresses[i];
+        }
+        for (uint i = 0; i < oneToZeroCount; i++) {
+            finalOneToZero[i] = oneToZero[i];
+            finalOneToZeroAddresses[i] = oneToZeroAddresses[i];
+        }
+
+        // Sort the trades
+        (finalZeroToOne, finalZeroToOneAddresses) = tradeSort(finalZeroToOne, finalZeroToOneAddresses, 0, int(finalZeroToOne.length - 1));
+        (finalOneToZero, finalOneToZeroAddresses) = tradeSort(finalOneToZero, finalOneToZeroAddresses, 0, int(finalOneToZero.length - 1));
+
+        // Encode the result as performData
+        performData = abi.encode(finalZeroToOne, finalZeroToOneAddresses, finalOneToZero, finalOneToZeroAddresses);
+        upkeepNeeded = (zeroToOneCount > 0 || oneToZeroCount > 0);
     }
 
     function performUpkeep(bytes calldata performData) external override {
-       
+
+        (
+            uint[] memory finalZeroToOne,
+            address[] memory finalZeroToOneaddresses,
+            uint[] memory finalOneToZero,
+            address[] memory finalOneToZeroaddresses
+        ) = abi.decode(performData, (uint[], address[], uint[], address[]));
+        // define pool key 
+        PoolKey memory key = PoolKey({
+            currency0: (
+                uint160(token0) < uint160(token1)
+                    ? Currency.wrap(token0)
+                    : Currency.wrap(token1)
+            ),
+            currency1: (
+                uint160(token0) < uint160(token1)
+                    ? Currency.wrap(token1)
+                    : Currency.wrap(token0)
+            ),
+            fee: 3000,
+            hooks: IHooks(address(this)),
+            tickSpacing: 60
+        });
+
+        int amountSpecified;
+
+        for (uint i; i<s_blockNonce[block.number]; i++){
+            
+            // TRY / CATCH swaps
+            // Trade[] trades = s_tradesInBlock[lastFullfilledBlockIndex+1];
+
+            // PoolSwapTest(poolSwap).swap(
+            //     key,
+            //     IPoolManager.SwapParams(
+            //         true,
+            //         amountSpecified,
+            //         79228162514264337593543950336 / 2
+            //     ),
+            //     PoolSwapTest.TestSettings(false, false),
+            //     hex""
+            // );
+        }
+
+  
+
     }
 }
