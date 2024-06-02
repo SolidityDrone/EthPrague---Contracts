@@ -17,30 +17,34 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    address[] public traderAddressesInThisBlockAtoB;
-    address[] public traderAddressesInThisBlockBtoA;
-    uint[] public tradeAmountsInThisBlockAtoB;
-    uint[] public tradeAmountsInThisBlockBtoA;
-    uint public currentBlock;
-
-    address forwarder;
+    uint internal lastFullfilledBlockIndex;
+    address internal forwarder;
+    uint[] blocks;
+    mapping(uint=>Trade[200]) internal s_tradesInBlock_0_1;
+    mapping(uint=>Trade[200]) internal s_tradesInBlock_1_0;
+    mapping(uint=>uint) internal s_blockNonce;
+    mapping(uint=>bool) internal s_isSavedBlock;
     
+
+    struct Trade{
+        address sender;
+        uint amountSpecified;
+        bool isZeroToOne;
+    }
+
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
     // TEMPORARY LOCATION FOR tradeSort & tradeMerge - WILL GO IN CHAINLINK AUTOMATION
     function setForwarder(address _forwarder) external {
         forwarder = _forwarder;
     }
-
-
+    
    function tradeSort(
         uint[] memory arr,
-        address[] memory addrArr,
-        int left,
-        int right
-    ) public pure returns (uint[] memory, address[] memory) {
-        int i = left;
-        int j = right;
+        address[] memory addrArr
+    ) internal pure returns (uint[] memory, address[] memory) {
+        int i = 0;
+        int j = arr.length;
         if (i != j) {
             uint pivot = arr[uint(left + (right - left) / 2)];
             while (i <= j) {
@@ -109,43 +113,41 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
         IPoolManager.SwapParams calldata params,
         bytes calldata
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
+            if (msg.sender == forwarder){
+               return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+            }   
+
             if (msg.sender != forwarder){
-                if (block.number != currentBlock) {
-                currentBlock = block.number;
-                if (params.zeroForOne) {
-                    traderAddressesInThisBlockAtoB = [msg.sender];
-                    tradeAmountsInThisBlockAtoB = [uint(params.amountSpecified)];
-                } else {
-                    traderAddressesInThisBlockBtoA = [msg.sender];
-                    tradeAmountsInThisBlockBtoA = [uint(params.amountSpecified)];
-                }
-            } else {
-                if (params.zeroForOne) {
-                    traderAddressesInThisBlockAtoB.push(msg.sender);
-                    tradeAmountsInThisBlockAtoB.push(uint(params.amountSpecified));
-                } else {
-                    traderAddressesInThisBlockBtoA.push(msg.sender);
-                    tradeAmountsInThisBlockBtoA.push(uint(params.amountSpecified));
+                if (s_isSavedBlock[block.number] == false){
+                    s_isSavedBlock[block.number] = true;    
+                    blocks.push(block.number);   
+                } 
+                 s_blockNonce[block.number] +=1;
+
+                if (!params.zeroForOne){
+                    s_tradesInBlock_1_0[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, false);
+                } 
+                if (params.zeroForOne){
+                    s_tradesInBlock_0_1[block.number][s_blockNonce[block.number]] = Trade(msg.sender, params.amountSpecified, true);
                 }
             }
-            // All txs are NoOp, so we return the amount that's taken by the hook https://www.v4-by-example.org/hooks/no-op
+
             Currency input = params.zeroForOne ? key.currency0 : key.currency1;
             poolManager.mint(
                 address(this),
                 input.toId(),
                 uint256(-params.amountSpecified)
             );
+
+
             
             return (
                 BaseHook.beforeSwap.selector,
                 toBeforeSwapDelta(int128(-params.amountSpecified), 0),
                 0
             );
-            } else {
-                return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
-            }
 
-       
+    
     }
 
     function beforeRemoveLiquidity(
@@ -185,7 +187,41 @@ contract NoOpSwap is BaseHook, AutomationCompatibleInterface {
     function checkUpkeep(
         bytes calldata checkdata
     ) external view returns (bool upkeepNeeded, bytes memory performData) {
-        return (upkeepNeeded, performData);
+        for (uint i; i < s_blockNonce[block.number]; i++){
+            
+        }
+    }
+
+    function tradeSortNew(Trades[] memory trades) internal pure returns (uint[] memory, address[] memory) {
+        int i = left = 0;
+        int j = right = arr.length;
+
+        if (i != j) {
+            uint pivot = arr[uint(left + (right - left) / 2)];
+            while (i <= j) {
+                while (arr[uint(i)] > pivot) i++;
+                while (pivot > arr[uint(j)]) j--;
+                if (i <= j) {
+                    (arr[uint(i)], arr[uint(j)]) = (arr[uint(j)], arr[uint(i)]);
+                    (addrArr[uint(i)], addrArr[uint(j)]) = (
+                        addrArr[uint(j)],
+                        addrArr[uint(i)]
+                    );
+                    i++;
+                    j--;
+                }
+            }
+            if (left < j) tradeSort(arr, addrArr, left, j);
+            if (i < right) tradeSort(arr, addrArr, i, right);
+        }
+        return (arr, addrArr);
+    }
+ 
+
+        struct Trade{
+        address sender;
+        uint amountSpecified;
+        bool isZeroToOne;
     }
 
     function performUpkeep(bytes calldata performData) external override {
